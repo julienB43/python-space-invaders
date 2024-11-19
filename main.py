@@ -1,191 +1,55 @@
+from win32api import GetSystemMetrics
 import pygame
 import random
 import os
-import time
-from dataclasses import dataclass, field
-from typing import ClassVar
+
+from assets import Player, Enemy, ShipType, LaserType, collide, get_image_size
+from button import Button
 
 # Init the font of the pygame window
 pygame.font.init()
 
 # Init the pygame window
-WIDTH = 720
-HEIGHT = 720
+WIDTH = GetSystemMetrics(0)
+HEIGHT = GetSystemMetrics(1) - 60
 WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Space Invader game")
 
 # Load images
-EASY_ENEMY_SHIP = pygame.transform.scale(pygame.image.load(os.path.join("assets", "enemy_ship_1.png")), (60, 60))
-MEDIUM_ENEMY_SHIP = pygame.transform.scale(pygame.image.load(os.path.join("assets", "enemy_ship_2.png")), (80, 80))
-HARD_ENEMY_SHIP = pygame.transform.scale(pygame.image.load(os.path.join("assets", "enemy_ship_3.png")), (100, 100))
-SMALL_ENEMY_BEAM = pygame.transform.scale(pygame.image.load(os.path.join("assets", "enemy_beam_2.png")), (10, 40))
-BIG_ENEMY_BEAM = pygame.transform.scale(pygame.image.load(os.path.join("assets", "enemy_beam_1.png")), (10, 40))
-PLAYER_SHIP = pygame.transform.scale(pygame.image.load(os.path.join("assets", "player_ship.png")), (100, 100))
-PLAYER_SHIP_BEAM = pygame.transform.scale(pygame.image.load(os.path.join("assets", "player_ship_beam.png")), (10, 40))
-SPACE_BACKGROUND = pygame.transform.scale(pygame.image.load(os.path.join("assets", "space_background.png")), (WIDTH, HEIGHT))
+MENU_BACKGROUND = pygame.transform.scale(pygame.image.load(os.path.join("backgrounds", "menu_background.png")), (WIDTH, HEIGHT))
+GAME_BACKGROUND = pygame.transform.scale(pygame.image.load(os.path.join("backgrounds", "game_bg_1.png")), (WIDTH, HEIGHT))
 
 
-@dataclass
-class GameObj:
-    x: int
-    y: int
-    mask: pygame.Mask
-    health: int = 100
+def get_font(size: int) -> pygame.font.Font:
+    return pygame.font.Font("assets/font.ttf", size)
 
-@dataclass
-class Laser(GameObj):
-    img: pygame.Surface = SMALL_ENEMY_BEAM
-    mask: pygame.Mask = pygame.mask.from_surface(img)
-    
-    def draw(self, window: pygame.Surface):
-        window.blit(self.img, (self.x, self.y))
-        
-    def move(self, velocity):
-        self.y += velocity
-    
-    def off_screen(self, height):
-        return not (self.y <= height and self.y >= 0)
-    
-    def collision(self, object):
-        return collide(object, self)
-
-
-@dataclass
-class Ship(GameObj):
-    COOLDOWN = 30
-    
-    health: int = 100
-    ship_type: str = "enemy"
-    ship_img: pygame.Surface | None = None
-    laser_img: pygame.Surface | None = None
-    lasers: list[Laser] = field(default_factory=list)
-    cooldown_counter: int = 0
-    
-    def draw(self, window: pygame.Surface) -> None:
-        window.blit(self.ship_img, (self.x, self.y))
-        for laser in self.lasers:
-            laser.draw(window)
-    
-    def move_lasers(self, velocity: int, obj: GameObj):
-        self.cooldown()
-        for laser in self.lasers[:]:
-            laser.move(velocity)
-            if laser.off_screen(HEIGHT):
-                self.lasers.remove(laser)
-            elif laser.collision(obj):
-                self.lasers.remove(laser)
-                obj.health -= 10
-        
-    def cooldown(self):
-        if self.cooldown_counter >= self.COOLDOWN:
-            self.cooldown_counter = 0
-        elif self.cooldown_counter > 0:
-            self.cooldown_counter += 1
-        
-    def shoot(self):
-        if self.cooldown_counter == 0:
-            x_pos = self.x + (self.ship_img.get_width() - self.laser_img.get_width()) / 2
-            match self.ship_type:
-                case "player":
-                    y_pos = self.y - self.laser_img.get_height()
-                case "enemy":
-                    y_pos = self.y + self.laser_img.get_height()
-            laser = Laser(x_pos, y_pos, img=self.laser_img)
-            self.lasers.append(laser)
-            self.cooldown_counter = 1
-    
-    def get_width(self) -> int:
-        return self.ship_img.get_width()
-    
-    def get_height(self) -> int:
-        return self.ship_img.get_height()
-
-
-@dataclass
-class Player(Ship):
-    ship_type: str = "player"
-    ship_img: pygame.Surface = PLAYER_SHIP
-    laser_img: pygame.Surface = PLAYER_SHIP_BEAM
-    mask: pygame.Mask = pygame.mask.from_surface(ship_img)
-    max_health: int = 100
-    
-    def move_lasers(self, velocity: int, objs: list[GameObj]):
-        self.cooldown()
-        for laser in self.lasers[:]:
-            laser.move(velocity)
-            if laser.off_screen(HEIGHT):
-                self.lasers.remove(laser)
-            else:
-                for obj in objs[:]:
-                    if laser.collision(obj):
-                        self.lasers.remove(laser)
-                        objs.remove(obj)
-    
-    def healthbar(self, window):
-        hbar_width = self.ship_img.get_width()
-        health_ratio = self.health / self.max_health
-        hbar_xpos = self.x
-        hbar_ypos = self.y + self.ship_img.get_height() + 10
-        pygame.draw.rect(window, "red", (hbar_xpos, hbar_ypos, hbar_width, 5))
-        pygame.draw.rect(window, "green", (hbar_xpos, hbar_ypos,hbar_width * health_ratio, 5))
-        
-
-@dataclass
-class Enemy(Ship):
-    BEAM_MAP: ClassVar[dict[str, pygame.Surface]] = {
-        "small": SMALL_ENEMY_BEAM,
-        "big": BIG_ENEMY_BEAM
-    }
-    SHIP_MAP: ClassVar[dict[str, pygame.Surface]] = {
-        "easy": EASY_ENEMY_SHIP,
-        "medium": MEDIUM_ENEMY_SHIP,
-        "hard": HARD_ENEMY_SHIP
-    }
-    
-    ship_type: str = "enemy"
-    ship: str = "easy"
-    beam: str = "small"
-    ship_img: pygame.Surface = SHIP_MAP[ship]
-    laser_img: pygame.Surface = BEAM_MAP[beam]
-    mask: pygame.Mask = pygame.mask.from_surface(ship_img)
-    
-    def move(self, velocity):
-        self.y += velocity
-
-
-def collide(obj1: GameObj, obj2: GameObj):
-    offset_x = obj2.x - obj1.x
-    offset_y = obj2.y - obj1.y
-    return obj1.mask.overlap(obj2.mask, (offset_x, offset_y)) != None
-
-
-def main():
+def play(game_bg: pygame.Surface):
     running = True
     lost = False
+    win = False
     lost_count = 0
+    win_count = 0
     FPS = 60
     level = 0
     lives = 3
-    main_font = pygame.font.SysFont('comicsans', 20)
-    lost_font = pygame.font.SysFont('comicsans', 60)
     
     enemies: list[Enemy] = []
     wave_length = 5
     enemy_velocity = 1
     laser_velocity = 4
     
-    player = Player((WIDTH - PLAYER_SHIP.get_width()) / 2, HEIGHT - PLAYER_SHIP.get_height() - 20)
-    player_velocity = 5
+    player = Player((WIDTH - get_image_size("large", "ship")[0]) / 2, HEIGHT - get_image_size("large", "ship")[1] - 20)
+    player_velocity = 8
     
     clock = pygame.time.Clock()
     
     def redraw_window() -> None:
         # Draw the background
-        WINDOW.blit(SPACE_BACKGROUND, (0, 0))
+        WINDOW.blit(game_bg, (0, 0))
         
         # Draw the text on the window
-        lives_label = main_font.render(f"Lives: {lives}", 1, "white")
-        level_label = main_font.render(f"Level: {level}", 1, "white")
+        lives_label = get_font(20).render(f"Lives: {lives}", 1, "white")
+        level_label = get_font(20).render(f"Level: {level}", 1, "white")
         
         WINDOW.blit(lives_label, (10, 10))
         WINDOW.blit(level_label, (WIDTH - level_label.get_width() - 10, 10))
@@ -196,8 +60,14 @@ def main():
         player.draw(WINDOW)
         player.healthbar(WINDOW)
         
+        if win:
+            congrat_label = get_font(60).render("Congratulation!", 1, "green")
+            WINDOW.blit(congrat_label, ((WIDTH - congrat_label.get_width()) / 2, (HEIGHT - congrat_label.get_height()) / 2 - 40))
+            win_label = get_font(60).render("You finished the game", 1, "green")
+            WINDOW.blit(win_label, ((WIDTH - win_label.get_width()) / 2, (HEIGHT - win_label.get_height()) / 2 + 40))
+        
         if lost:
-            lost_label = lost_font.render("Game over! Try again", 1, "red")
+            lost_label = get_font(60).render("Game over! Try again", 1, "red")
             WINDOW.blit(lost_label, ((WIDTH - lost_label.get_width()) / 2, (HEIGHT - lost_label.get_height()) / 2))
         
         pygame.display.update()
@@ -215,31 +85,42 @@ def main():
         
         if lost:
             if lost_count > FPS * 3:
-                running = False
+                main_menu(game_bg)
+            else:
+                continue
+            
+        if level == 10 and len(enemies) == 0:
+            win = True
+            win_count += 1
+        
+        if win:
+            if win_count > FPS * 3:
+                main_menu(game_bg)
             else:
                 continue
         
         if len(enemies) == 0:
             level += 1
-            wave_length += 5
             for i in range(wave_length):
                 x = random.randrange(50, WIDTH-100)
                 y = random.randrange(-2 * HEIGHT * level // 5, -100)
-                ship=random.choice(["easy", "medium", "hard"])
-                match ship:
-                    case "easy":
-                        beam = "small"
-                    case "medium":
-                        beam = random.choice(["small", "big"])
-                    case "hard":
-                        beam = "big"
-                enemy = Enemy(x, y, ship=ship, beam=beam)
+                ship_type=random.choice(list(ShipType))
+                match ship_type:
+                    case ShipType.SMALL:
+                        laser = LaserType.NORMAL
+                    case ShipType.MEDIUM:
+                        laser = random.choice(list(LaserType))
+                    case ShipType.LARGE:
+                        laser = LaserType.NORMAL
+                enemy = Enemy(x, y, ship_type=ship_type, laser_type=laser)
                 enemies.append(enemy)
+            
+            wave_length += 5
         
         # Check if event are happening
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
+                quit()
                 
         keys = pygame.key.get_pressed()
         if (keys[pygame.K_q] or keys[pygame.K_LEFT]) and player.x - player_velocity > 0: # left
@@ -252,6 +133,8 @@ def main():
             player.y += player_velocity
         if keys[pygame.K_SPACE]:
             player.shoot()
+        if keys[pygame.K_ESCAPE]:
+            main_menu(game_bg)
         
         for enemy in enemies[:]:
             enemy.move(enemy_velocity)
@@ -268,22 +151,86 @@ def main():
         
         player.move_lasers(-laser_velocity, enemies)
         
-def main_menu():
-    title_font = pygame.font.SysFont("comicsans", 50)
+    pygame.quit()
+
+def options(game_bg: pygame.Surface):
     running = True
     
+    def change_game_bg(bg: pygame.Surface):
+        return pygame.transform.scale(bg, (WIDTH, HEIGHT))
+    
     while running:
-        WINDOW.blit(SPACE_BACKGROUND, (0, 0))
-        title_label = title_font.render("Press the mouse to begin...", 1, "white")
-        WINDOW.blit(title_label, ((WIDTH - title_label.get_width()) / 2, (HEIGHT - title_label.get_height()) / 2))
+        MENU_MOUSE_POS = pygame.mouse.get_pos()
+        
+        LIST_BG_BTN: list[Button] = []
+        LIST_BG: list[pygame.Surface] = []
+        
+        WINDOW.blit(MENU_BACKGROUND, (0, 0))
+        MENU_TEXT = get_font(WIDTH//20).render("OPTIONS", 1, "#04BBFF")
+        MENU_RECT = MENU_TEXT.get_rect(center=(WIDTH//2, HEIGHT//15))
+        WINDOW.blit(MENU_TEXT, MENU_RECT)
+        
+        for i, bg in enumerate(os.listdir(os.path.join("backgrounds"))[:-1]):
+            LIST_BG_BTN.append(Button(image_path=os.path.join("assets", "button_rect.png"), pos= (WIDTH //3, 220+i*75), transform=True,
+                                  font=get_font(20), base_color="#D7FCD4", hovering_color="white", text_input=f"Background {i+1}"))
+            LIST_BG.append(pygame.transform.scale(pygame.image.load(os.path.join("backgrounds", bg)), (560, 350)))
+            
+        for button in LIST_BG_BTN:
+            button.change_color(MENU_MOUSE_POS)
+            button.update(WINDOW)
+        CURRENT_GAME_BG = pygame.transform.scale(game_bg, (560, 350))
+        WINDOW.blit(CURRENT_GAME_BG, CURRENT_GAME_BG.get_rect(center=(2*WIDTH//3, HEIGHT//2-25)))
         pygame.display.update()
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
+                quit()
             if event.type == pygame.MOUSEBUTTONDOWN:
-                main()
+                for i, btn in enumerate(LIST_BG_BTN):
+                    if btn.check_input(MENU_MOUSE_POS):
+                        game_bg = change_game_bg(LIST_BG[i])
+                        pygame.display.update()
+
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_ESCAPE]:
+            main_menu(game_bg)
                 
     pygame.quit()
 
-main_menu()
+def main_menu(game_bg: pygame.Surface):
+    running = True
+    
+    while running:
+        MENU_MOUSE_POS = pygame.mouse.get_pos()
+        
+        WINDOW.blit(MENU_BACKGROUND, (0, 0))
+        MENU_TEXT = get_font(WIDTH//20).render("MAIN MENU", 1, "#04BBFF")
+        MENU_RECT = MENU_TEXT.get_rect(center=(WIDTH//2, HEIGHT//15))
+        WINDOW.blit(MENU_TEXT, MENU_RECT)
+        
+        PLAY_BUTTON = Button(image_path=os.path.join("assets", "button_rect.png"), pos=(WIDTH//2, 6*HEIGHT//20),
+                             base_color="#D7FCD4", hovering_color="white", font=get_font(50), text_input="PLAY")
+        OPTIONS_BUTTON = Button(image_path=os.path.join("assets", "button_rect.png"), pos=(WIDTH//2, 9*HEIGHT//20),
+                                base_color="#D7FCD4", hovering_color="white", font=get_font(50), text_input="OPTIONS")
+        QUIT_BUTTON = Button(image_path=os.path.join("assets", "button_rect.png"), pos=(WIDTH//2, 12*HEIGHT//20),
+                             base_color="#D7FCD4", hovering_color="white", font=get_font(50), text_input="EXIT")
+        
+        for button in [PLAY_BUTTON, OPTIONS_BUTTON, QUIT_BUTTON]:
+            button.change_color(MENU_MOUSE_POS)
+            button.update(WINDOW)
+        pygame.display.update()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                quit()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if PLAY_BUTTON.check_input(MENU_MOUSE_POS):
+                    play(game_bg)
+                if OPTIONS_BUTTON.check_input(MENU_MOUSE_POS):
+                    options(game_bg)
+                if QUIT_BUTTON.check_input(MENU_MOUSE_POS):
+                    quit()
+                
+    pygame.quit()
+
+main_menu(GAME_BACKGROUND)
